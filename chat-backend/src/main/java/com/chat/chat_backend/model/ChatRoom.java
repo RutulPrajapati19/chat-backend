@@ -12,8 +12,23 @@ import java.util.List;
 public class ChatRoom {
     @Id
     private String id;
+
     private String name;
+    private String passwordHash;
     private String createdBy;
-    private List<String> memberIds = new ArrayList<>();
+    private List<String> approvedMemberIds = new ArrayList<>();
+    private List<String> bannedUserIds = new ArrayList<>();
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    public boolean isAdmin(String username) {
+        return createdBy != null && createdBy.equals(username);
+    }
+
+    public boolean isApprovedMember(String username) {
+        return isAdmin(username) || approvedMemberIds.contains(username);
+    }
+
+    public boolean isBanned(String username) {
+        return bannedUserIds.contains(username);
+    }
 }
