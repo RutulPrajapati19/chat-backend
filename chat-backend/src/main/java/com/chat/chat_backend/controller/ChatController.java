@@ -26,8 +26,11 @@ public class ChatController {
 
         String username = principal.getName();
 
-        if (!roomService.canAccessRoom(roomId, username))
+        // ✅ Allow admin OR approved member
+        if (!roomService.canAccessRoom(roomId, username) &&
+                !roomService.getRoomAdmin(roomId).equals(username)) {
             throw new SecurityException("Not a member of this room");
+        }
 
         String content = message.getContent();
         if (content == null || content.trim().isEmpty())

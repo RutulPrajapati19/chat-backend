@@ -176,7 +176,7 @@ public class RoomService {
 
     public boolean canAccessRoom(String roomId, String username) {
         return roomRepository.findById(roomId)
-                .map(room -> room.isApprovedMember(username))
+                .map(room -> room.isAdmin(username) || room.isApprovedMember(username))
                 .orElse(false);
     }
 

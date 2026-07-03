@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
 import java.security.Principal;
 import java.util.List;
 import java.util.Map;
@@ -21,9 +22,20 @@ public class MessageHistoryController {
 
     @GetMapping("/{roomId}")
     public ResponseEntity<?> getMessages(@PathVariable String roomId, Principal principal) {
-        if (!roomService.canAccessRoom(roomId, principal.getName()))
+        if (principal == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Not authenticated"));
+
+        String username = principal.getName();
+
+        // Allow admin OR approved member
+        if (!roomService.canAccessRoom(roomId, username)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("error", "Not a member of this room"));
-        return ResponseEntity.ok(messageRepository.findByRoomIdOrderByTimestampAsc(roomId));
+        }
+
+        List<ChatMessage> messages = messageRepository
+                .findByRoomIdOrderByTimestampAsc(roomId);
+        return ResponseEntity.ok(messages);
     }
 }
