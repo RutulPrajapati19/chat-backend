@@ -1,7 +1,6 @@
 package com.chat.chat_backend.controller;
 
 import com.chat.chat_backend.dto.AuthRequest;
-import com.chat.chat_backend.dto.AuthResponse;
 import com.chat.chat_backend.dto.RegisterRequest;
 import com.chat.chat_backend.security.AuthService;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +14,11 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+
+    @GetMapping("/health")
+    public ResponseEntity<?> health() {
+        return ResponseEntity.ok(Map.of("status", "ok", "timestamp", System.currentTimeMillis()));
+    }
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody RegisterRequest request) {

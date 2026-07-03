@@ -4,9 +4,7 @@ import com.chat.chat_backend.dto.*;
 import com.chat.chat_backend.model.ChatRoom;
 import com.chat.chat_backend.model.JoinRequest;
 import com.chat.chat_backend.model.User;
-import com.chat.chat_backend.repository.ChatRoomRepository;
-import com.chat.chat_backend.repository.JoinRequestRepository;
-import com.chat.chat_backend.repository.UserRepository;
+import com.chat.chat_backend.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -30,15 +28,12 @@ public class RoomService {
     public ChatRoom createRoom(CreateRoomRequest request, String username) {
         if (request.getName() == null || request.getName().trim().isEmpty())
             throw new IllegalArgumentException("Room name is required");
+        if (request.getPassword() == null || request.getPassword().length() < 4)
+            throw new IllegalArgumentException("Room password must be at least 4 characters");
 
         ChatRoom room = new ChatRoom();
         room.setName(request.getName().trim());
-
-        // Password is optional
-        if (request.getPassword() != null && !request.getPassword().isEmpty()) {
-            room.setPasswordHash(passwordEncoder.encode(request.getPassword()));
-        }
-
+        room.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         room.setCreatedBy(username);
         return roomRepository.save(room);
     }
@@ -69,51 +64,39 @@ public class RoomService {
 
     public JoinRequest requestToJoin(String roomId, JoinRoomRequest request, String username) {
         ChatRoom room = roomRepository.findById(roomId)
-                .orElseThrow(() -> new IllegalArgumentException("Room not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Invalid room or password"));
 
         if (room.isBanned(username))
-            throw new IllegalStateException("You are banned from this room");
-
-        if (room.isAdmin(username))
-            throw new IllegalStateException("You are the admin of this room");
-
+            throw new IllegalStateException("You cannot join this room");
         if (room.isApprovedMember(username))
             throw new IllegalStateException("You are already a member");
 
-        // Rate limit: max 5 attempts per 15 minutes
         long attempts = joinRequestRepository.countByRoomIdAndUsernameAndRequestedAtAfter(
                 roomId, username, LocalDateTime.now().minusMinutes(15));
         if (attempts >= 5)
             throw new IllegalStateException("Too many attempts. Try again later.");
 
-        // Check password if room has one
-        if (room.getPasswordHash() != null && !room.getPasswordHash().isEmpty()) {
-            if (request.getPassword() == null ||
-                    !passwordEncoder.matches(request.getPassword(), room.getPasswordHash())) {
-                throw new IllegalArgumentException("Invalid room password");
-            }
-        }
+        if (request.getPassword() == null ||
+                !passwordEncoder.matches(request.getPassword(), room.getPasswordHash()))
+            throw new IllegalArgumentException("Invalid room or password");
 
-        // Return existing pending request if already submitted
         var existing = joinRequestRepository
                 .findByRoomIdAndUsernameAndStatus(roomId, username, JoinRequest.Status.PENDING);
         if (existing.isPresent()) return existing.get();
 
-        // Get user email
         User user = userRepository.findByUsername(username).orElse(null);
-        String userEmail = user != null ? user.getEmail() : null;
 
         JoinRequest joinRequest = new JoinRequest();
         joinRequest.setRoomId(roomId);
         joinRequest.setRoomName(room.getName());
         joinRequest.setUsername(username);
-        joinRequest.setUserEmail(userEmail);
+        joinRequest.setUserEmail(user != null ? user.getEmail() : null);
         JoinRequest saved = joinRequestRepository.save(joinRequest);
 
-        // Email the admin
+        // Email admin
         User admin = userRepository.findByUsername(room.getCreatedBy()).orElse(null);
         if (admin != null && admin.getEmail() != null) {
-            emailService.sendJoinRequestNotificationToAdmin(
+            emailService.sendJoinRequestToAdmin(
                     admin.getEmail(), admin.getUsername(), username, room.getName());
         }
 
@@ -133,41 +116,40 @@ public class RoomService {
 
     public void approveRequest(String roomId, String requestId, String adminUsername) {
         ChatRoom room = getRoomAsAdmin(roomId, adminUsername);
-        JoinRequest request = getPendingRequest(requestId, roomId);
+        JoinRequest req = getPendingRequest(requestId, roomId);
 
-        request.setStatus(JoinRequest.Status.APPROVED);
-        request.setResolvedAt(LocalDateTime.now());
-        request.setResolvedBy(adminUsername);
-        joinRequestRepository.save(request);
+        req.setStatus(JoinRequest.Status.APPROVED);
+        req.setResolvedAt(LocalDateTime.now());
+        req.setResolvedBy(adminUsername);
+        joinRequestRepository.save(req);
 
-        if (!room.getApprovedMemberIds().contains(request.getUsername())) {
-            room.getApprovedMemberIds().add(request.getUsername());
+        if (!room.getApprovedMemberIds().contains(req.getUsername())) {
+            room.getApprovedMemberIds().add(req.getUsername());
             roomRepository.save(room);
         }
 
-        // Email the user
-        String email = request.getUserEmail();
+        // Email user
+        String email = req.getUserEmail();
         if (email == null) {
-            User user = userRepository.findByUsername(request.getUsername()).orElse(null);
-            if (user != null) email = user.getEmail();
+            User u = userRepository.findByUsername(req.getUsername()).orElse(null);
+            if (u != null) email = u.getEmail();
         }
         if (email != null) {
-            emailService.sendApprovalNotificationToUser(email, request.getUsername(), room.getName());
+            emailService.sendApprovalToUser(email, req.getUsername(), room.getName());
         }
     }
 
     public void declineRequest(String roomId, String requestId, String adminUsername) {
         ChatRoom room = getRoomAsAdmin(roomId, adminUsername);
-        JoinRequest request = getPendingRequest(requestId, roomId);
+        JoinRequest req = getPendingRequest(requestId, roomId);
 
-        request.setStatus(JoinRequest.Status.DECLINED);
-        request.setResolvedAt(LocalDateTime.now());
-        request.setResolvedBy(adminUsername);
-        joinRequestRepository.save(request);
+        req.setStatus(JoinRequest.Status.DECLINED);
+        req.setResolvedAt(LocalDateTime.now());
+        req.setResolvedBy(adminUsername);
+        joinRequestRepository.save(req);
 
-        if (request.getUserEmail() != null) {
-            emailService.sendDeclineNotificationToUser(
-                    request.getUserEmail(), request.getUsername(), room.getName());
+        if (req.getUserEmail() != null) {
+            emailService.sendDeclineToUser(req.getUserEmail(), req.getUsername(), room.getName());
         }
     }
 
@@ -187,39 +169,21 @@ public class RoomService {
                 .orElse(false);
     }
 
-    public String getRoomAdmin(String roomId) {
-        return roomRepository.findById(roomId)
-                .map(ChatRoom::getCreatedBy)
-                .orElseThrow(() -> new IllegalArgumentException("Room not found"));
-    }
-
-    public String getRoomName(String roomId) {
-        return roomRepository.findById(roomId)
-                .map(ChatRoom::getName)
-                .orElseThrow(() -> new IllegalArgumentException("Room not found"));
-    }
-
-    public String getRequesterUsername(String requestId) {
-        return joinRequestRepository.findById(requestId)
-                .map(JoinRequest::getUsername)
-                .orElseThrow(() -> new IllegalArgumentException("Request not found"));
-    }
-
     private ChatRoom getRoomAsAdmin(String roomId, String username) {
         ChatRoom room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new IllegalArgumentException("Room not found"));
         if (!room.isAdmin(username))
-            throw new IllegalStateException("Only the room admin can perform this action");
+            throw new IllegalStateException("Only the room admin can do this");
         return room;
     }
 
     private JoinRequest getPendingRequest(String requestId, String roomId) {
-        JoinRequest request = joinRequestRepository.findById(requestId)
+        JoinRequest req = joinRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Request not found"));
-        if (!request.getRoomId().equals(roomId))
-            throw new IllegalArgumentException("Request does not belong to this room");
-        if (request.getStatus() != JoinRequest.Status.PENDING)
-            throw new IllegalStateException("Request already resolved");
-        return request;
+        if (!req.getRoomId().equals(roomId))
+            throw new IllegalArgumentException("Request not in this room");
+        if (req.getStatus() != JoinRequest.Status.PENDING)
+            throw new IllegalStateException("Already resolved");
+        return req;
     }
 }
