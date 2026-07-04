@@ -108,7 +108,8 @@ public class RoomService {
         User admin = userRepository.findByUsername(room.getCreatedBy()).orElse(null);
         if (admin != null && admin.getEmail() != null) {
             emailService.sendJoinRequestNotificationToAdmin(
-                    admin.getEmail(), admin.getUsername(), username, room.getName());
+                    admin.getEmail(), admin.getUsername(),
+                    username, room.getName(), saved.getId());
         }
 
         return saved;

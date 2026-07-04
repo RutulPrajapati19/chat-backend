@@ -60,18 +60,27 @@ public class EmailService {
 
     @Async("taskExecutor")
     public void sendJoinRequestNotificationToAdmin(String adminEmail, String adminUsername,
-                                                   String requesterUsername, String roomName) {
+                                                   String requesterUsername, String roomName,
+                                                   String requestId) {
+        String approveUrl = "https://chat-backend-vdje.onrender.com/api/email/approve/"
+                + requestId + "/" + adminUsername;
+        String declineUrl = "https://chat-backend-vdje.onrender.com/api/email/decline/"
+                + requestId + "/" + adminUsername;
+
         sendEmail(adminEmail, "🔔 New Join Request — #" + roomName, """
-            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-              <div style="background:#fff;border-radius:16px;padding:32px;border:1px solid #e2e8f0;">
-                <h1 style="color:#6366f1;">💬 ChatApp</h1>
-                <h2>New Join Request</h2>
-                <p style="color:#64748b;">Hi <strong>%s</strong>,</p>
-                <p style="color:#64748b;"><strong>%s</strong> wants to join <strong style="color:#6366f1;">#%s</strong>.</p>
-                <p style="color:#64748b;font-size:13px;">Log in to approve or reject.</p>
-              </div>
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <div style="background:#fff;border-radius:16px;padding:32px;border:1px solid #e2e8f0;">
+            <h1 style="color:#6366f1;">💬 ChatApp</h1>
+            <h2>New Join Request</h2>
+            <p style="color:#64748b;">Hi <strong>%s</strong>,</p>
+            <p style="color:#64748b;"><strong>%s</strong> wants to join <strong style="color:#6366f1;">#%s</strong>.</p>
+            <div style="display:flex;gap:12px;margin-top:24px;">
+              <a href="%s" style="flex:1;display:inline-block;padding:12px 24px;background:#22c55e;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px;text-align:center;">✅ Approve</a>
+              <a href="%s" style="flex:1;display:inline-block;padding:12px 24px;background:#ef4444;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px;text-align:center;">❌ Decline</a>
             </div>
-            """.formatted(adminUsername, requesterUsername, roomName));
+          </div>
+        </div>
+        """.formatted(adminUsername, requesterUsername, roomName, approveUrl, declineUrl));
     }
 
     @Async("taskExecutor")
