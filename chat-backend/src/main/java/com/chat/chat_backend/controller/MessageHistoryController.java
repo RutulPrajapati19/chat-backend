@@ -1,7 +1,9 @@
 package com.chat.chat_backend.controller;
 
 import com.chat.chat_backend.model.ChatMessage;
+import com.chat.chat_backend.model.ChatRoom;
 import com.chat.chat_backend.repository.ChatMessageRepository;
+import com.chat.chat_backend.repository.ChatRoomRepository;
 import com.chat.chat_backend.service.RoomService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -18,24 +20,35 @@ import java.util.Map;
 public class MessageHistoryController {
 
     private final ChatMessageRepository messageRepository;
+    private final ChatRoomRepository roomRepository;
     private final RoomService roomService;
 
-    @GetMapping("/{roomId}")
-    public ResponseEntity<?> getMessages(@PathVariable String roomId, Principal principal) {
+    @GetMapping("/{roomName}")
+    public ResponseEntity<?> getMessages(@PathVariable String roomName, Principal principal) {
         if (principal == null)
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Not authenticated"));
 
         String username = principal.getName();
 
-        // Allow admin OR approved member
-        if (!roomService.canAccessRoom(roomId, username)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("error", "Not a member of this room"));
+        // Find room by name first
+        ChatRoom room = roomRepository.findByName(roomName).orElse(null);
+
+        // If not found by name, try by ID (fallback)
+        if (room == null) {
+            room = roomRepository.findById(roomName).orElse(null);
         }
 
+        if (room == null)
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Room not found"));
+
+        if (!roomService.canAccessRoom(room.getId(), username))
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Not a member of this room"));
+
         List<ChatMessage> messages = messageRepository
-                .findByRoomIdOrderByTimestampAsc(roomId);
+                .findByRoomIdOrderByTimestampAsc(room.getId());
         return ResponseEntity.ok(messages);
     }
 }

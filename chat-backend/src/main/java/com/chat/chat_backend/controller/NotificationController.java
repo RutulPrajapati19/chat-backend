@@ -1,7 +1,9 @@
 package com.chat.chat_backend.controller;
 
 import com.chat.chat_backend.dto.JoinRoomRequest;
+import com.chat.chat_backend.model.ChatRoom;
 import com.chat.chat_backend.model.JoinRequest;
+import com.chat.chat_backend.repository.ChatRoomRepository;
 import com.chat.chat_backend.service.RoomService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +20,7 @@ import java.util.Map;
 public class NotificationController {
 
     private final RoomService roomService;
+    private final ChatRoomRepository roomRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
     @PostMapping("/{roomId}/request-join")
@@ -27,24 +30,15 @@ public class NotificationController {
             @AuthenticationPrincipal UserDetails userDetails) {
         try {
             JoinRequest jr = roomService.requestToJoin(roomId, request, userDetails.getUsername());
-
             String adminUsername = roomService.getRoomAdmin(roomId);
             messagingTemplate.convertAndSendToUser(
-                    adminUsername,
-                    "/queue/notifications",
-                    Map.of(
-                            "type", "JOIN_REQUEST",
+                    adminUsername, "/queue/notifications",
+                    Map.of("type", "JOIN_REQUEST",
                             "requestId", jr.getId(),
                             "roomId", roomId,
                             "roomName", jr.getRoomName(),
-                            "username", userDetails.getUsername()
-                    )
-            );
-
-            return ResponseEntity.ok(Map.of(
-                    "status", jr.getStatus().name(),
-                    "requestId", jr.getId()
-            ));
+                            "username", userDetails.getUsername()));
+            return ResponseEntity.ok(Map.of("status", jr.getStatus().name(), "requestId", jr.getId()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
@@ -59,17 +53,9 @@ public class NotificationController {
             String requesterUsername = roomService.getRequesterUsername(requestId);
             String roomName = roomService.getRoomName(roomId);
             roomService.approveRequest(roomId, requestId, userDetails.getUsername());
-
             messagingTemplate.convertAndSendToUser(
-                    requesterUsername,
-                    "/queue/notifications",
-                    Map.of(
-                            "type", "REQUEST_APPROVED",
-                            "roomId", roomId,
-                            "roomName", roomName
-                    )
-            );
-
+                    requesterUsername, "/queue/notifications",
+                    Map.of("type", "REQUEST_APPROVED", "roomId", roomId, "roomName", roomName));
             return ResponseEntity.ok(Map.of("message", "Approved"));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
@@ -85,17 +71,9 @@ public class NotificationController {
             String requesterUsername = roomService.getRequesterUsername(requestId);
             String roomName = roomService.getRoomName(roomId);
             roomService.declineRequest(roomId, requestId, userDetails.getUsername());
-
             messagingTemplate.convertAndSendToUser(
-                    requesterUsername,
-                    "/queue/notifications",
-                    Map.of(
-                            "type", "REQUEST_DECLINED",
-                            "roomId", roomId,
-                            "roomName", roomName
-                    )
-            );
-
+                    requesterUsername, "/queue/notifications",
+                    Map.of("type", "REQUEST_DECLINED", "roomId", roomId, "roomName", roomName));
             return ResponseEntity.ok(Map.of("message", "Declined"));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
@@ -107,8 +85,7 @@ public class NotificationController {
             @PathVariable String roomId,
             @AuthenticationPrincipal UserDetails userDetails) {
         try {
-            return ResponseEntity.ok(
-                    roomService.getPendingRequests(roomId, userDetails.getUsername()));
+            return ResponseEntity.ok(roomService.getPendingRequests(roomId, userDetails.getUsername()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
