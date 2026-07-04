@@ -1,20 +1,21 @@
 package com.chat.chat_backend.service;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.http.*;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import jakarta.mail.internet.MimeMessage;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class EmailService {
 
-    private final JavaMailSender mailSender;
+    @Value("${brevo.api.key}")
+    private String apiKey;
 
     @Value("${brevo.from.email}")
     private String fromEmail;
@@ -22,19 +23,21 @@ public class EmailService {
     @Value("${brevo.from.name}")
     private String fromName;
 
+    private final RestTemplate restTemplate = new RestTemplate();
+    private static final String BREVO_URL = "https://api.brevo.com/v3/smtp/email";
+
     @Async("taskExecutor")
     public void sendRegistrationConfirmation(String toEmail, String username) {
         String subject = "Welcome to ChatApp! 🎉";
         String body = """
-            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#f8fafc;">
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
               <div style="background:#fff;border-radius:16px;padding:32px;border:1px solid #e2e8f0;">
                 <h1 style="color:#6366f1;">💬 ChatApp</h1>
-                <h2 style="color:#0f172a;">Welcome, %s! 👋</h2>
-                <p style="color:#64748b;line-height:1.6;">Your account has been successfully created. You can now log in and start chatting in real-time.</p>
+                <h2>Welcome, %s! 👋</h2>
+                <p style="color:#64748b;">Your account has been successfully created. You can now log in and start chatting!</p>
                 <div style="background:#f0f4ff;border-radius:10px;padding:16px;margin:20px 0;">
-                  <p style="color:#4338ca;margin:0;">✅ Account created successfully<br/>✅ Real-time messaging enabled<br/>✅ Create and join rooms instantly</p>
+                  <p style="color:#4338ca;margin:0;">✅ Account created<br/>✅ Real-time messaging enabled<br/>✅ Create and join rooms</p>
                 </div>
-                <p style="color:#94a3b8;font-size:13px;">If you did not create this account, please ignore this email.</p>
               </div>
             </div>
             """.formatted(username);
@@ -45,15 +48,14 @@ public class EmailService {
     public void sendPasswordResetOtp(String toEmail, String username, String otp) {
         String subject = "ChatApp — Password Reset OTP";
         String body = """
-            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#f8fafc;">
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
               <div style="background:#fff;border-radius:16px;padding:32px;border:1px solid #e2e8f0;">
                 <h1 style="color:#6366f1;">💬 ChatApp</h1>
-                <h2 style="color:#0f172a;">Password Reset Request</h2>
-                <p style="color:#64748b;">Hi %s, use the OTP below to reset your password. It expires in <strong>10 minutes</strong>.</p>
+                <h2>Password Reset</h2>
+                <p style="color:#64748b;">Hi %s, your OTP is below. Expires in 10 minutes.</p>
                 <div style="text-align:center;margin:28px 0;">
                   <div style="display:inline-block;background:#6366f1;color:#fff;font-size:36px;font-weight:700;letter-spacing:12px;padding:16px 32px;border-radius:12px;">%s</div>
                 </div>
-                <p style="color:#94a3b8;font-size:13px;">If you did not request a password reset, ignore this email.</p>
               </div>
             </div>
             """.formatted(username, otp);
@@ -65,13 +67,13 @@ public class EmailService {
                                                    String requesterUsername, String roomName) {
         String subject = "New Join Request — #" + roomName;
         String body = """
-            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#f8fafc;">
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
               <div style="background:#fff;border-radius:16px;padding:32px;border:1px solid #e2e8f0;">
                 <h1 style="color:#6366f1;">💬 ChatApp</h1>
-                <h2 style="color:#0f172a;">New Join Request</h2>
+                <h2>New Join Request</h2>
                 <p style="color:#64748b;">Hi <strong>%s</strong>,</p>
-                <p style="color:#64748b;"><strong style="color:#0f172a;">%s</strong> has requested to join your room <strong style="color:#6366f1;">#%s</strong>.</p>
-                <p style="color:#64748b;font-size:13px;">Log in to ChatApp to approve or reject this request.</p>
+                <p style="color:#64748b;"><strong>%s</strong> wants to join <strong style="color:#6366f1;">#%s</strong>.</p>
+                <p style="color:#64748b;font-size:13px;">Log in to approve or reject this request.</p>
               </div>
             </div>
             """.formatted(adminUsername, requesterUsername, roomName);
@@ -80,13 +82,13 @@ public class EmailService {
 
     @Async("taskExecutor")
     public void sendApprovalNotificationToUser(String toEmail, String username, String roomName) {
-        String subject = "✅ Join Request Approved — #" + roomName;
+        String subject = "✅ Approved — #" + roomName;
         String body = """
-            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#f8fafc;">
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
               <div style="background:#fff;border-radius:16px;padding:32px;border:1px solid #e2e8f0;">
                 <h1 style="color:#6366f1;">💬 ChatApp</h1>
-                <h2 style="color:#0f172a;">Request Approved! 🎉</h2>
-                <p style="color:#64748b;">Hi <strong>%s</strong>, your request to join <strong style="color:#6366f1;">#%s</strong> has been <strong style="color:#16a34a;">approved</strong>!</p>
+                <h2>Request Approved! 🎉</h2>
+                <p style="color:#64748b;">Hi <strong>%s</strong>, you can now enter <strong style="color:#6366f1;">#%s</strong>!</p>
               </div>
             </div>
             """.formatted(username, roomName);
@@ -95,13 +97,13 @@ public class EmailService {
 
     @Async("taskExecutor")
     public void sendDeclineNotificationToUser(String toEmail, String username, String roomName) {
-        String subject = "❌ Join Request Declined — #" + roomName;
+        String subject = "❌ Request Declined — #" + roomName;
         String body = """
-            <div style="font-family:Arial,sans-serif;max-width:600px;background:#f8fafc;">
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
               <div style="background:#fff;border-radius:16px;padding:32px;border:1px solid #e2e8f0;">
                 <h1 style="color:#6366f1;">💬 ChatApp</h1>
-                <h2 style="color:#0f172a;">Request Declined</h2>
-                <p style="color:#64748b;">Hi <strong>%s</strong>, your request to join <strong style="color:#6366f1;">#%s</strong> was <strong style="color:#dc2626;">not approved</strong>.</p>
+                <h2>Request Declined</h2>
+                <p style="color:#64748b;">Hi <strong>%s</strong>, your request to join <strong style="color:#6366f1;">#%s</strong> was declined.</p>
               </div>
             </div>
             """.formatted(username, roomName);
@@ -110,16 +112,27 @@ public class EmailService {
 
     private void sendEmail(String toEmail, String subject, String htmlBody) {
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            helper.setFrom(fromEmail, fromName);
-            helper.setTo(toEmail);
-            helper.setSubject(subject);
-            helper.setText(htmlBody, true);
-            mailSender.send(message);
-            log.info("Email sent to {}: {}", toEmail, subject);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("api-key", apiKey);
+
+            Map<String, Object> payload = Map.of(
+                    "sender", Map.of("name", fromName, "email", fromEmail),
+                    "to", List.of(Map.of("email", toEmail)),
+                    "subject", subject,
+                    "htmlContent", htmlBody
+            );
+
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payload, headers);
+            ResponseEntity<String> response = restTemplate.postForEntity(BREVO_URL, entity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                log.info("Email sent to {}: {}", toEmail, subject);
+            } else {
+                log.error("Email failed to {}: {}", toEmail, response.getBody());
+            }
         } catch (Exception e) {
-            log.error("Failed to send email to {}: {}", toEmail, e.getMessage());
+            log.error("Email error to {}: {}", toEmail, e.getMessage());
         }
     }
 }

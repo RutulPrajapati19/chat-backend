@@ -6,6 +6,7 @@ import com.chat.chat_backend.service.RoomService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.*;
 import org.springframework.stereotype.Controller;
+
 import java.security.Principal;
 import java.time.LocalDateTime;
 
@@ -22,15 +23,13 @@ public class ChatController {
                                    @Payload ChatMessage message,
                                    Principal principal) {
 
-        if (principal == null) throw new SecurityException("Not authenticated");
+        if (principal == null)
+            throw new SecurityException("Not authenticated");
 
         String username = principal.getName();
 
-        // ✅ Allow admin OR approved member
-        if (!roomService.canAccessRoom(roomId, username) &&
-                !roomService.getRoomAdmin(roomId).equals(username)) {
+        if (!roomService.canAccessRoom(roomId, username))
             throw new SecurityException("Not a member of this room");
-        }
 
         String content = message.getContent();
         if (content == null || content.trim().isEmpty())
