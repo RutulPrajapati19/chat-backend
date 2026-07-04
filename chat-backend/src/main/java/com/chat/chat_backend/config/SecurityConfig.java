@@ -43,6 +43,8 @@ public class SecurityConfig {
                                 "/ws",
                                 "/ws/info",
                                 "/ws/info/**",
+                                "/info",
+                                "/info/**",
                                 "/error"
                         ).permitAll()
                         .anyRequest().authenticated()
