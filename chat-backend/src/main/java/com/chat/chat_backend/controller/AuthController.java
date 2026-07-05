@@ -1,16 +1,17 @@
 package com.chat.chat_backend.controller;
 
 import com.chat.chat_backend.dto.AuthRequest;
-import com.chat.chat_backend.dto.AuthResponse;
 import com.chat.chat_backend.dto.RegisterRequest;
+import com.chat.chat_backend.model.User;
+import com.chat.chat_backend.repository.UserRepository;
 import com.chat.chat_backend.security.AuthService;
-import com.chat.chat_backend.service.PasswordResetService;
+import com.chat.chat_backend.security.JwtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.Principal;
 import java.util.Map;
 
 @RestController
@@ -19,7 +20,14 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
-    private final PasswordResetService passwordResetService;
+    private final UserRepository userRepository;
+    private final JwtService jwtService;
+    private final PasswordEncoder passwordEncoder;
+
+    @GetMapping("/health")
+    public ResponseEntity<?> health() {
+        return ResponseEntity.ok(Map.of("status", "ok", "timestamp", System.currentTimeMillis()));
+    }
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
@@ -39,58 +47,51 @@ public class AuthController {
         }
     }
 
-    @PostMapping("/change-password")
-    public ResponseEntity<?> changePassword(
-            @RequestBody Map<String, String> body,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        try {
-            authService.changePassword(
-                    userDetails.getUsername(),
-                    body.get("oldPassword"),
-                    body.get("newPassword")
-            );
-            return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
-    }
-
     @PostMapping("/change-username")
-    public ResponseEntity<?> changeUsername(
-            @RequestBody Map<String, String> body,
-            @AuthenticationPrincipal UserDetails userDetails) {
+    public ResponseEntity<?> changeUsername(@RequestBody Map<String, String> body, Principal principal) {
         try {
-            authService.changeUsername(
-                    userDetails.getUsername(),
-                    body.get("newUsername"),
-                    body.get("password")
-            );
-            return ResponseEntity.ok(Map.of("message", "Username changed successfully"));
-        } catch (RuntimeException e) {
+            String newUsername = body.get("username");
+            if (newUsername == null || newUsername.trim().isEmpty())
+                return ResponseEntity.badRequest().body(Map.of("error", "Username is required"));
+
+            User user = userRepository.findByUsername(principal.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            if (userRepository.existsByUsername(newUsername.trim()))
+                return ResponseEntity.badRequest().body(Map.of("error", "Username already taken"));
+
+            user.setUsername(newUsername.trim());
+            userRepository.save(user);
+
+            String newToken = jwtService.generateToken(newUsername.trim());
+            return ResponseEntity.ok(Map.of("token", newToken, "username", newUsername.trim()));
+        } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
 
-    @PostMapping("/forgot-password")
-    public ResponseEntity<?> forgotPassword(@RequestBody Map<String, String> body) {
+    @PostMapping("/change-password")
+    public ResponseEntity<?> changePassword(@RequestBody Map<String, String> body, Principal principal) {
         try {
-            passwordResetService.requestReset(body.get("email"));
-            return ResponseEntity.ok(Map.of("message", "OTP sent to your email"));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
-    }
+            String currentPassword = body.get("currentPassword");
+            String newPassword = body.get("newPassword");
 
-    @PostMapping("/reset-password")
-    public ResponseEntity<?> resetPassword(@RequestBody Map<String, String> body) {
-        try {
-            passwordResetService.resetPassword(
-                    body.get("email"),
-                    body.get("otp"),
-                    body.get("newPassword")
-            );
-            return ResponseEntity.ok(Map.of("message", "Password reset successfully"));
-        } catch (RuntimeException e) {
+            if (currentPassword == null || newPassword == null)
+                return ResponseEntity.badRequest().body(Map.of("error", "Both passwords required"));
+            if (newPassword.length() < 6)
+                return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 6 characters"));
+
+            User user = userRepository.findByUsername(principal.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            if (!passwordEncoder.matches(currentPassword, user.getPassword()))
+                return ResponseEntity.badRequest().body(Map.of("error", "Current password is incorrect"));
+
+            user.setPassword(passwordEncoder.encode(newPassword));
+            userRepository.save(user);
+
+            return ResponseEntity.ok(Map.of("message", "Password updated successfully"));
+        } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
