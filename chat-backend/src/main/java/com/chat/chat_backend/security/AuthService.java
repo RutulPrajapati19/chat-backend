@@ -51,4 +51,24 @@ public class AuthService {
         String token = jwtService.generateToken(user.getUsername());
         return new AuthResponse(token, user.getUsername(), user.getEmail());
     }
+
+    public void changePassword(String username, String oldPassword, String newPassword) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (!passwordEncoder.matches(oldPassword, user.getPassword()))
+            throw new RuntimeException("Current password is incorrect");
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+    }
+
+    public void changeUsername(String currentUsername, String newUsername, String password) {
+        User user = userRepository.findByUsername(currentUsername)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (!passwordEncoder.matches(password, user.getPassword()))
+            throw new RuntimeException("Password is incorrect");
+        if (userRepository.existsByUsername(newUsername))
+            throw new RuntimeException("Username already taken");
+        user.setUsername(newUsername);
+        userRepository.save(user);
+    }
 }

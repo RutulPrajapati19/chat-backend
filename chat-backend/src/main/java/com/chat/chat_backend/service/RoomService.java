@@ -39,7 +39,17 @@ public class RoomService {
         }
 
         room.setCreatedBy(username);
-        return roomRepository.save(room);
+        ChatRoom saved = roomRepository.save(room);
+
+        // Send email to admin
+        userRepository.findByUsername(username).ifPresent(user -> {
+            if (user.getEmail() != null) {
+                emailService.sendRoomCreatedConfirmation(
+                        user.getEmail(), username, saved.getName());
+            }
+        });
+
+        return saved;
     }
 
     public List<RoomSummaryResponse> getAllRoomsFor(String username) {
@@ -215,5 +225,16 @@ public class RoomService {
         if (req.getStatus() != JoinRequest.Status.PENDING)
             throw new IllegalStateException("Request already resolved");
         return req;
+    }
+
+    public void editRoom(String roomId, String newName, String newPassword, String adminUsername) {
+        ChatRoom room = getRoomAsAdmin(roomId, adminUsername);
+        if (newName != null && !newName.trim().isEmpty()) {
+            room.setName(newName.trim());
+        }
+        if (newPassword != null && !newPassword.trim().isEmpty()) {
+            room.setPasswordHash(passwordEncoder.encode(newPassword.trim()));
+        }
+        roomRepository.save(room);
     }
 }

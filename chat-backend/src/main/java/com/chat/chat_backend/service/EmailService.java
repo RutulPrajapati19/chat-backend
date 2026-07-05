@@ -136,4 +136,18 @@ public class EmailService {
             log.error("Email error to {}: {}", toEmail, e.getMessage());
         }
     }
+
+    @Async("taskExecutor")
+    public void sendRoomCreatedConfirmation(String toEmail, String username, String roomName) {
+        sendEmail(toEmail, "🏠 Room Created — #" + roomName, """
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <div style="background:#fff;border-radius:16px;padding:32px;border:1px solid #e2e8f0;">
+            <h1 style="color:#6366f1;">💬 ChatApp</h1>
+            <h2>Room Created! 🎉</h2>
+            <p style="color:#64748b;">Hi <strong>%s</strong>, your room <strong style="color:#6366f1;">#%s</strong> has been created successfully.</p>
+            <p style="color:#64748b;">Share the room name and password with people you want to invite.</p>
+          </div>
+        </div>
+        """.formatted(username, roomName));
+    }
 }
