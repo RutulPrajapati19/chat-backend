@@ -1,7 +1,5 @@
 package com.chat.chat_backend.controller;
 
-import com.chat.chat_backend.dto.UpdateProfileRequest;
-import com.chat.chat_backend.dto.UserProfileResponse;
 import com.chat.chat_backend.model.User;
 import com.chat.chat_backend.repository.UserRepository;
 import com.chat.chat_backend.security.JwtService;
@@ -23,71 +21,81 @@ public class UserController {
     private final JwtService jwtService;
 
     @GetMapping("/me")
-    public ResponseEntity<?> getMyProfile(Principal principal) {
-        User user = userRepository.findByUsername(principal.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        return ResponseEntity.ok(new UserProfileResponse(
-                user.getId(), user.getUsername(), user.getEmail(),
-                user.getStatus(), user.getCreatedAt().toString()));
-    }
-
-    @PutMapping("/me")
-    public ResponseEntity<?> updateEmail(@RequestBody UpdateProfileRequest request,
-                                         Principal principal) {
-        User user = userRepository.findByUsername(principal.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        if (request.getEmail() != null && !request.getEmail().isBlank())
-            user.setEmail(request.getEmail().trim().toLowerCase());
-
-        userRepository.save(user);
-        return ResponseEntity.ok(new UserProfileResponse(
-                user.getId(), user.getUsername(), user.getEmail(),
-                user.getStatus(), user.getCreatedAt().toString()));
+    public ResponseEntity<?> getMe(Principal principal) {
+        User user = getUser(principal);
+        return ResponseEntity.ok(buildProfile(user));
     }
 
     @PostMapping("/change-username")
-    public ResponseEntity<?> changeUsername(@RequestBody Map<String, String> body,
-                                            Principal principal) {
-        String newUsername = body.get("username");
-        if (newUsername == null || newUsername.trim().isEmpty())
-            return ResponseEntity.badRequest().body(Map.of("error", "Username is required"));
-        if (newUsername.trim().length() < 3)
+    public ResponseEntity<?> changeUsername(@RequestBody Map<String, String> body, Principal principal) {
+        String newUsername = body.getOrDefault("username", "").trim();
+        if (newUsername.isEmpty())
+            return ResponseEntity.badRequest().body(Map.of("error", "Username cannot be empty"));
+        if (newUsername.length() < 3)
             return ResponseEntity.badRequest().body(Map.of("error", "Username must be at least 3 characters"));
 
-        User user = userRepository.findByUsername(principal.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        if (!user.getUsername().equals(newUsername.trim()) &&
-                userRepository.existsByUsername(newUsername.trim()))
+        User user = getUser(principal);
+        if (user.getUsername().equals(newUsername))
+            return ResponseEntity.badRequest().body(Map.of("error", "That is already your username"));
+        if (userRepository.existsByUsername(newUsername))
             return ResponseEntity.badRequest().body(Map.of("error", "Username already taken"));
 
-        user.setUsername(newUsername.trim());
+        user.setUsername(newUsername);
         userRepository.save(user);
+        String newToken = jwtService.generateToken(newUsername);
+        return ResponseEntity.ok(Map.of("token", newToken, "username", newUsername));
+    }
 
-        String newToken = jwtService.generateToken(newUsername.trim());
-        return ResponseEntity.ok(Map.of("token", newToken, "username", newUsername.trim()));
+    @PostMapping("/change-email")
+    public ResponseEntity<?> changeEmail(@RequestBody Map<String, String> body, Principal principal) {
+        String newEmail = body.getOrDefault("email", "").trim().toLowerCase();
+        if (newEmail.isEmpty() || !newEmail.contains("@"))
+            return ResponseEntity.badRequest().body(Map.of("error", "Enter a valid email address"));
+
+        User user = getUser(principal);
+        if (user.getEmail().equals(newEmail))
+            return ResponseEntity.badRequest().body(Map.of("error", "That is already your email"));
+        if (userRepository.findByEmail(newEmail).isPresent())
+            return ResponseEntity.badRequest().body(Map.of("error", "Email already in use"));
+
+        user.setEmail(newEmail);
+        userRepository.save(user);
+        return ResponseEntity.ok(buildProfile(user));
     }
 
     @PostMapping("/change-password")
-    public ResponseEntity<?> changePassword(@RequestBody Map<String, String> body,
-                                            Principal principal) {
-        String currentPassword = body.get("currentPassword");
-        String newPassword = body.get("newPassword");
+    public ResponseEntity<?> changePassword(@RequestBody Map<String, String> body, Principal principal) {
+        String current = body.getOrDefault("currentPassword", "");
+        String next = body.getOrDefault("newPassword", "");
 
-        if (currentPassword == null || newPassword == null)
-            return ResponseEntity.badRequest().body(Map.of("error", "Both passwords required"));
-        if (newPassword.length() < 6)
-            return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 6 characters"));
+        if (current.isEmpty())
+            return ResponseEntity.badRequest().body(Map.of("error", "Enter your current password"));
+        if (next.length() < 6)
+            return ResponseEntity.badRequest().body(Map.of("error", "New password must be at least 6 characters"));
+        if (current.equals(next))
+            return ResponseEntity.badRequest().body(Map.of("error", "New password must be different"));
 
-        User user = userRepository.findByUsername(principal.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        if (!passwordEncoder.matches(currentPassword, user.getPassword()))
+        User user = getUser(principal);
+        if (!passwordEncoder.matches(current, user.getPassword()))
             return ResponseEntity.badRequest().body(Map.of("error", "Current password is incorrect"));
 
-        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setPassword(passwordEncoder.encode(next));
         userRepository.save(user);
-        return ResponseEntity.ok(Map.of("message", "Password updated successfully"));
+        return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
+    }
+
+    private User getUser(Principal principal) {
+        return userRepository.findByUsername(principal.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+    }
+
+    private Map<String, Object> buildProfile(User user) {
+        return Map.of(
+                "id", user.getId(),
+                "username", user.getUsername(),
+                "email", user.getEmail(),
+                "status", user.getStatus() != null ? user.getStatus() : "OFFLINE",
+                "createdAt", user.getCreatedAt().toString()
+        );
     }
 }
