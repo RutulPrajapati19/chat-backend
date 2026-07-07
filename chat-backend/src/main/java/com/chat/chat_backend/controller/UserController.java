@@ -5,10 +5,11 @@ import com.chat.chat_backend.repository.UserRepository;
 import com.chat.chat_backend.security.JwtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.security.Principal;
 import java.util.Map;
 
 @RestController
@@ -21,81 +22,106 @@ public class UserController {
     private final JwtService jwtService;
 
     @GetMapping("/me")
-    public ResponseEntity<?> getMe(Principal principal) {
-        User user = getUser(principal);
-        return ResponseEntity.ok(buildProfile(user));
+    public ResponseEntity<?> getProfile(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return userRepository.findByUsername(userDetails.getUsername())
+                .map(user -> ResponseEntity.ok(Map.of(
+                        "username", user.getUsername(),
+                        "email", user.getEmail() != null ? user.getEmail() : "",
+                        "createdAt", user.getCreatedAt() != null ? user.getCreatedAt().toString() : ""
+                )))
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping("/change-username")
-    public ResponseEntity<?> changeUsername(@RequestBody Map<String, String> body, Principal principal) {
-        String newUsername = body.getOrDefault("username", "").trim();
-        if (newUsername.isEmpty())
-            return ResponseEntity.badRequest().body(Map.of("error", "Username cannot be empty"));
-        if (newUsername.length() < 3)
-            return ResponseEntity.badRequest().body(Map.of("error", "Username must be at least 3 characters"));
+    public ResponseEntity<?> changeUsername(
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        try {
+            String newUsername = body.get("username");
+            if (newUsername == null || newUsername.trim().length() < 3)
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Username must be at least 3 characters"));
 
-        User user = getUser(principal);
-        if (user.getUsername().equals(newUsername))
-            return ResponseEntity.badRequest().body(Map.of("error", "That is already your username"));
-        if (userRepository.existsByUsername(newUsername))
-            return ResponseEntity.badRequest().body(Map.of("error", "Username already taken"));
+            newUsername = newUsername.trim();
 
-        user.setUsername(newUsername);
-        userRepository.save(user);
-        String newToken = jwtService.generateToken(newUsername);
-        return ResponseEntity.ok(Map.of("token", newToken, "username", newUsername));
+            if (userRepository.existsByUsername(newUsername))
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Username already taken"));
+
+            User user = userRepository.findByUsername(userDetails.getUsername())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            user.setUsername(newUsername);
+            userRepository.save(user);
+
+            String newToken = jwtService.generateToken(newUsername);
+            return ResponseEntity.ok(Map.of(
+                    "username", newUsername,
+                    "token", newToken
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @PostMapping("/change-email")
-    public ResponseEntity<?> changeEmail(@RequestBody Map<String, String> body, Principal principal) {
-        String newEmail = body.getOrDefault("email", "").trim().toLowerCase();
-        if (newEmail.isEmpty() || !newEmail.contains("@"))
-            return ResponseEntity.badRequest().body(Map.of("error", "Enter a valid email address"));
+    public ResponseEntity<?> changeEmail(
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        try {
+            String newEmail = body.get("email");
+            if (newEmail == null || !newEmail.contains("@"))
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Invalid email address"));
 
-        User user = getUser(principal);
-        if (user.getEmail().equals(newEmail))
-            return ResponseEntity.badRequest().body(Map.of("error", "That is already your email"));
-        if (userRepository.findByEmail(newEmail).isPresent())
-            return ResponseEntity.badRequest().body(Map.of("error", "Email already in use"));
+            newEmail = newEmail.trim().toLowerCase();
 
-        user.setEmail(newEmail);
-        userRepository.save(user);
-        return ResponseEntity.ok(buildProfile(user));
+            if (userRepository.existsByEmail(newEmail))
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Email already in use"));
+
+            User user = userRepository.findByUsername(userDetails.getUsername())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            user.setEmail(newEmail);
+            userRepository.save(user);
+
+            return ResponseEntity.ok(Map.of("email", newEmail));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @PostMapping("/change-password")
-    public ResponseEntity<?> changePassword(@RequestBody Map<String, String> body, Principal principal) {
-        String current = body.getOrDefault("currentPassword", "");
-        String next = body.getOrDefault("newPassword", "");
+    public ResponseEntity<?> changePassword(
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        try {
+            String currentPassword = body.get("currentPassword");
+            String newPassword = body.get("newPassword");
 
-        if (current.isEmpty())
-            return ResponseEntity.badRequest().body(Map.of("error", "Enter your current password"));
-        if (next.length() < 6)
-            return ResponseEntity.badRequest().body(Map.of("error", "New password must be at least 6 characters"));
-        if (current.equals(next))
-            return ResponseEntity.badRequest().body(Map.of("error", "New password must be different"));
+            if (currentPassword == null || newPassword == null)
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "All fields required"));
 
-        User user = getUser(principal);
-        if (!passwordEncoder.matches(current, user.getPassword()))
-            return ResponseEntity.badRequest().body(Map.of("error", "Current password is incorrect"));
+            if (newPassword.length() < 6)
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Password must be at least 6 characters"));
 
-        user.setPassword(passwordEncoder.encode(next));
-        userRepository.save(user);
-        return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
-    }
+            User user = userRepository.findByUsername(userDetails.getUsername())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
-    private User getUser(Principal principal) {
-        return userRepository.findByUsername(principal.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-    }
+            if (!passwordEncoder.matches(currentPassword, user.getPassword()))
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Current password is incorrect"));
 
-    private Map<String, Object> buildProfile(User user) {
-        return Map.of(
-                "id", user.getId(),
-                "username", user.getUsername(),
-                "email", user.getEmail(),
-                "status", user.getStatus() != null ? user.getStatus() : "OFFLINE",
-                "createdAt", user.getCreatedAt().toString()
-        );
+            user.setPassword(passwordEncoder.encode(newPassword));
+            userRepository.save(user);
+
+            return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 }
